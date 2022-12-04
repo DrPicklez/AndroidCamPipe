@@ -4,8 +4,10 @@ package com.example.cameragrabber;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
+import android.graphics.drawable.BitmapDrawable;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraCharacteristics;
@@ -30,26 +32,36 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Vector;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "AndroidCameraApi";
     private Button takePictureButton;
     private TextureView textureView;
+    private View view;
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+
 
 
     static {
@@ -60,22 +72,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-    public NetworkMan mNetworkMan;
+    private Socket socket;
+
+    private static final int SERVER_PORT = 8888;
+    private static final String SERVER_IP = "192.168.0.4";
 
     private String cameraId;
     protected CameraDevice cameraDevice;
     protected CameraCaptureSession cameraCaptureSessions;
     protected CaptureRequest captureRequest;
     protected CaptureRequest.Builder captureRequestBuilder;
+
     private Size imageDimension;
     private ImageReader imageReader;
     private File file;
     private static final int REQUEST_CAMERA_PERMISSION = 200;
     private boolean mFlashSupported;
     private Handler mBackgroundHandler;
-
-    public enum WindowSizeClass { COMPACT, MEDIUM, EXPANDED }
-
+    private HandlerThread mBackgroundThread;
 
     public MainActivity() {
     }
@@ -99,18 +113,22 @@ public class MainActivity extends AppCompatActivity {
         textureView = (TextureView) findViewById(R.id.textureView);
         assert textureView != null;
         textureView.setSurfaceTextureListener(textureListener);
-        new ConnectTask().execute("");
 
+        new Thread(new ClientThread()).start();
 
-
+        /*
         takePictureButton = (Button) findViewById(R.id.btn_takepicture);
         assert takePictureButton != null;
         takePictureButton.setOnClickListener(new View.OnClickListener() {
+
+
             @Override
             public void onClick(View v) {
                 takePicture();
             }
         });
+
+         */
     }
 
     TextureView.SurfaceTextureListener textureListener = new TextureView.SurfaceTextureListener() {
@@ -160,10 +178,55 @@ public class MainActivity extends AppCompatActivity {
             super.onCaptureCompleted(session, request, result);
             Toast.makeText(MainActivity.this, "Saved:" + file, Toast.LENGTH_SHORT).show();
             createCameraPreview();
+            new Thread(new ClientThread()).start();
         }
     };
 
-    
+    public void screenClicked(View v) {
+        takePicture();
+    }
+    public void pipeImage() {
+        try {
+            ImageView imageView=(ImageView) findViewById(R.id.textureView);//EditText et = (EditText) findViewById(R.id.EditText01);
+            Bitmap bmp=((BitmapDrawable)imageView.getDrawable()).getBitmap(); //String str = et.getText().toString();
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            bmp.compress(Bitmap.CompressFormat.PNG, 0 /*ignored for PNG*/, bos);
+            byte[] array = bos.toByteArray();
+
+            OutputStream out = socket.getOutputStream();
+            DataOutputStream dos = new DataOutputStream(out);
+            dos.writeInt(array.length);
+            dos.write(array, 0, array.length);
+
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    class ClientThread implements Runnable {
+
+        @Override
+        public void run() {
+
+            try {
+                InetAddress serverAddr = InetAddress.getByName(SERVER_IP);
+
+                socket = new Socket(serverAddr, SERVER_PORT);
+
+            } catch (UnknownHostException e1) {
+                e1.printStackTrace();
+            } catch (IOException e1) {
+                e1.printStackTrace();
+            }
+
+        }
+
+    }
     protected void startBackgroundThread() {
         mBackgroundThread = new HandlerThread("Camera Background");
         mBackgroundThread.start();
@@ -233,18 +296,18 @@ public class MainActivity extends AppCompatActivity {
 
                 private void save(byte[] bytes) throws IOException {
 //                    OutputStream output = null;
-                    if (mNetworkMan != null) {
-                        mNetworkMan.sendMessage("gone");
-
-                    }
 
                     try {
-                        if (mNetworkMan != null) {
-                            mNetworkMan.sendMessage("gone");
+                        if(socket != null){
+                            OutputStream out = socket.getOutputStream();
+                            DataOutputStream dos = new DataOutputStream(out);
+                            dos.writeInt(bytes.length);
+                            dos.write(bytes, 0, bytes.length);
                         }
-                        if (mNetworkMan != null) {
-//                            mNetworkMan.stopClient();
+                        else {
+                            Log.e("soc", "cannot Get SocketConnection");
                         }
+
 //                        NetworkMan.sendMessage("I have hit Go");
 //                        output = new FileOutputStream(file);
 //                        output.write(bytes);
